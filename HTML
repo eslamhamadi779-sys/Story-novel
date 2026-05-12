@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>حكايا ✨ | موقع قصص لا تنتهي</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getAuth, signInWithPopup, GoogleAuthProvider,
+    onAuthStateChanged, signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, collection, addDoc, query,
+    orderBy, onSnapshot, deleteDoc, doc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // ============================================================
+  //  🔥 ضع إعدادات Firebase الخاصة بك هنا
+  // ============================================================
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+  // ============================================================
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+
+  const CATEGORIES = [
+    { key: 'الكل',        icon: '🌟' },
+    { key: 'قصص أطفال',  icon: '🧸' },
+    { key: 'قصص قصيرة',  icon: '📖' },
+    { key: 'مقالات',      icon: '📰' },
+    { key: 'روايات',      icon: '📚' },
+    { key: 'فلسفة',       icon: '🧠' },
+    { key: 'شعر وأغاني',  icon: '🎵' },
+    { key: 'أديان',       icon: '🕌' },
+    { key: 'تكنولوجيا',  icon: '💻' },
+  ];
+
+  const DEFAULT_IMG = {
+    'قصص أطفال':  'https://picsum.photos/seed/child/600/400',
+    'قصص قصيرة':  'https://picsum.photos/seed/story/600/400',
+    'مقالات':      'https://picsum.photos/seed/article/600/400',
+    'روايات':      'https://picsum.photos/seed/novel/600/400',
+    'فلسفة':       'https://picsum.photos/seed/philosophy/600/400',
+    'شعر وأغاني':  'https://picsum.photos/seed/poetry/600/400',
+    'أديان':       'https://picsum.photos/seed/religion/600/400',
+    'تكنولوجيا':  'https://picsum.photos/seed/tech/600/400',
+  };
+
+  let currentUser  = null;
+  let allStories   = [];
+  let activeFilter = 'الكل';
+
+  /* ─── Auth ─── */
+  onAuthStateChanged(auth, user => {
+    currentUser = user;
+    renderNav();
+    renderAddPanel();
+    renderStories();
+  });
+
+  async function login() {
+    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+    catch(e){ console.error(e); }
+  }
+
+  function logout() { signOut(auth); }
+
+  /* ─── Firestore listener ─── */
+  const q = query(collection(db, 'stories'), orderBy('createdAt', 'desc'));
+  onSnapshot(q, snap => {
+    allStories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderStories();
+  }, err => console.error(err));
+
+  /* ─── Add story ─── */
+  async function addStory() {
+    if (!currentUser) return;
+    const title    = document.getElementById('inp-title').value.trim();
+    const category = document.getElementById('inp-cat').value;
+    const content  = document.getElementById('inp-content').value.trim();
+    const image    = document.getElementById('inp-img').value.trim();
+    if (!title || !content) return showToast('⚠️ أدخل العنوان والمحتوى');
+
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true;
+    btn.textContent = '⏳ جاري النشر...';
+
+    try {
+      await addDoc(collection(db, 'stories'), {
+        title, category, content,
+        image: image || DEFAULT_IMG[category] || '',
+        userId:    currentUser.uid,
+        userEmail: currentUser.email,
+        userName:  currentUser.displayName || currentUser.email.split('@')[0],
+        createdAt: serverTimestamp()
+      });
+      document.getElementById('inp-title').value   = '';
+      document.getElementById('inp-content').value = '';
+      document.getElementById('inp-img').value     = '';
+      closeAddPanel();
+      showToast('✅ تم نشر القصة بنجاح!');
+    } catch(e) {
+      console.error(e);
+      showToast('❌ حدث خطأ، حاول مرة أخرى');
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🚀 انشر الآن!';
+  }
+
+  /* ─── Delete story ─── */
+  async function deleteStory(id) {
+    if (!confirm('هل تريد حذف هذه القصة؟')) return;
+    try {
+      await deleteDoc(doc(db, 'stories', id));
+      showToast('🗑️ تم الحذف');
+    } catch(e) { console.error(e); }
+  }
+
+  /* ─── Filter ─── */
+  function setFilter(cat) {
+    activeFilter = cat;
+    document.querySelectorAll('.cat-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.cat === cat);
+    });
+    renderStories();
+  }
+
+  /* ─── Modal ─── */
+  function openStory(id) {
+    const s = allStories.find(x => x.id === id);
+    if (!s) return;
+    const catIcon = (CATEGORIES.find(c => c.key === s.category) || {}).icon || '📝';
+    const img     = s.image || DEFAULT_IMG[s.category] || 'https://picsum.photos/seed/default/600/400';
+    const modal   = document.getElementById('modal');
+    document.getElementById('modal-hero').style.backgroundImage = `url('${img}')`;
+    document.getElementById('modal-cat').textContent    = `${catIcon} ${s.category}`;
+    document.getElementById('modal-title').textContent  = s.title;
+    document.getElementById('modal-author').textContent = `✍️ ${s.userName || s.userEmail}`;
+    document.getElementById('modal-body').textContent   = s.content;
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal() {
+    document.getElementById('modal').style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  /* ─── Add Panel toggle ─── */
+  function openAddPanel() {
+    document.getElementById('add-panel').style.display = 'block';
+    document.getElementById('btn-add').style.display   = 'none';
+  }
+  function closeAddPanel() {
+    document.getElementById('add-panel').style.display = 'none';
+    document.getElementById('btn-add').style.display   = currentUser ? 'inline-block' : 'none';
+  }
+
+  /* ─── Toast ─── */
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  /* ─── Clock ─── */
+  function tick() {
+    const now  = new Date();
+    const time = now.toLocaleTimeString('ar-EG', { timeZone:'Africa/Cairo', hour12:false });
+    const date = now.toLocaleDateString('ar-EG', { timeZone:'Africa/Cairo', weekday:'long', month:'long', day:'numeric' });
+    document.getElementById('clock-time').textContent = time;
+    document.getElementById('clock-date').textContent = date;
+  }
+  setInterval(tick, 1000);
+  tick();
+
+  /* ─── Render Nav ─── */
+  function renderNav() {
+    const right = document.getElementById('nav-right');
+    if (currentUser) {
+      right.innerHTML = `
+        <img src="${currentUser.photoURL||''}" class="user-avatar" onerror="this.style.display='none'">
+        <span class="user-name">${(currentUser.displayName||'').split(' ')[0]}</span>
+        <button class="btn-logout" id="btn-logout">خروج 👋</button>
+      `;
+      document.getElementById('btn-logout').onclick = logout;
+    } else {
+      right.innerHTML = `<button class="btn-login" id="btn-login">🔑 دخول بجوجل</button>`;
+      document.getElementById('btn-login').onclick = login;
+    }
+  }
+
+  /* ─── Render Add Panel visibility ─── */
+  function renderAddPanel() {
+    const btnAdd = document.getElementById('btn-add');
+    if (btnAdd) btnAdd.style.display = currentUser ? 'inline-block' : 'none';
+  }
+
+  /* ─── Render Categories ─── */
+  function renderCategories() {
+    const bar = document.getElementById('cat-bar');
+    bar.innerHTML = CATEGORIES.map(c => `
+      <button class="cat-btn ${c.key === activeFilter ? 'active' : ''}"
+              data-cat="${c.key}"
+              onclick="window._setFilter('${c.key}')">
+        ${c.icon} ${c.key}
+      </button>
+    `).join('');
+  }
+
+  /* ─── Render Stories ─── */
+  function renderStories() {
+    const grid     = document.getElementById('stories-grid');
+    const filtered = activeFilter === 'الكل' ? allStories : allStories.filter(s => s.category === activeFilter);
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="empty-state">🌙 لا توجد قصص في هذه الفئة بعد... كن أول من يكتب!</div>`;
+      return;
+    }
+
+    grid.innerHTML = filtered.map(s => {
+      const icon   = (CATEGORIES.find(c => c.key === s.category)||{}).icon || '📝';
+      const img    = s.image || DEFAULT_IMG[s.category] || 'https://picsum.photos/seed/d/600/400';
+      const isOwner = currentUser && currentUser.uid === s.userId;
+      const excerpt = s.content.slice(0, 100) + '...';
+      return `
+        <div class="story-card" style="animation:fadeUp .5s ease both">
+          <div class="card-cover" style="background-image:url('${img}')">
+            <div class="card-cover-overlay"></div>
+            <span class="card-cat">${icon} ${s.category}</span>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">${s.title}</h3>
+            <p class="card-author">✍️ ${s.userName || s.userEmail}</p>
+            <p class="card-excerpt">${excerpt}</p>
+            <div class="card-actions">
+              <button class="btn-read" onclick="window._openStory('${s.id}')">اقرأ الآن ✨</button>
+              ${isOwner ? `<button class="btn-del" onclick="window._deleteStory('${s.id}')">🗑️</button>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /* ─── Expose to HTML ─── */
+  window._login       = login;
+  window._logout      = logout;
+  window._setFilter   = setFilter;
+  window._openStory   = openStory;
+  window._closeModal  = closeModal;
+  window._addStory    = addStory;
+  window._openAdd     = openAddPanel;
+  window._closeAdd    = closeAddPanel;
+
+  /* ─── Particles ─── */
+  function spawnParticles() {
+    const container = document.getElementById('particles');
+    const symbols   = ['✨','🌟','💫','⭐','🌙'];
+    for (let i = 0; i < 22; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      p.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+      p.style.cssText = `
+        left:${Math.random()*100}%;
+        animation-delay:${Math.random()*10}s;
+        animation-duration:${7 + Math.random()*7}s;
+        font-size:${0.7 + Math.random()*1.1}em;
+      `;
+      container.appendChild(p);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    renderCategories();
+    renderNav();
+    spawnParticles();
+  });
+
+  /* ─── Modal close on backdrop click ─── */
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('modal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+  });
+
+  /* ─── Hero login btn ─── */
+  document.addEventListener('DOMContentLoaded', () => {
+    const hb = document.getElementById('hero-login-btn');
+    if (hb) hb.onclick = login;
+  });
+</script>
+
+<style>
+/* ============ RESET & BASE ============ */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; font-family:'Cairo',sans-serif; }
+html { scroll-behavior:smooth; }
+
+:root {
+  --primary:      #c084fc;
+  --primary-dark: #7c3aed;
+  --accent:       #fbbf24;
+  --text:         #f5f3ff;
+  --muted:        #a5b4fc;
+  --card-bg:      rgba(255,255,255,0.04);
+  --card-border:  rgba(192,132,252,0.2);
+}
+
+body {
+  background: linear-gradient(135deg, #0f0c2e 0%, #1e1b4b 35%, #312e81 65%, #1e1b4b 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  overflow-x: hidden;
+  min-height: 100vh;
+  direction: rtl;
+}
+
+/* ─── BG Radials ─── */
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse 70% 60% at 10% 15%, rgba(124,58,237,.22) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 70% at 90% 85%, rgba(192,132,252,.18) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(251,191,36,.05) 0%, transparent 70%);
+  pointer-events:none; z-index:0;
+}
+
+/* ─── Particles ─── */
+#particles { position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden; }
+.particle  { position:absolute; top:-2em; user-select:none; animation:fallDown linear infinite; opacity:.75; }
+@keyframes fallDown {
+  0%   { top:-5%; opacity:0; transform:translateX(0) rotate(0deg); }
+  10%  { opacity:.8; }
+  90%  { opacity:.5; }
+  100% { top:105%; opacity:0; transform:translateX(40px) rotate(360deg); }
+}
+
+/* ─── Navbar ─── */
+#navbar {
+  position:fixed; top:0; left:0; right:0; z-index:200;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 28px; height:64px;
+  background:rgba(10,8,30,.85); backdrop-filter:blur(24px);
+  border-bottom:1px solid rgba(192,132,252,.15);
+  box-shadow:0 4px 30px rgba(0,0,0,.3);
+}
+.brand { display:flex; align-items:center; gap:10px; }
+.brand-icon { font-size:1.6em; }
+.brand-name {
+  font-size:1.5em; font-weight:900; letter-spacing:-.5px;
+  background:linear-gradient(135deg,#c084fc,#fbbf24,#f0abfc);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+#nav-right { display:flex; align-items:center; gap:12px; }
+.user-avatar { width:34px; height:34px; border-radius:50%; border:2px solid var(--primary); object-fit:cover; }
+.user-name   { font-size:.9em; font-weight:700; color:var(--muted); }
+.btn-login {
+  padding:8px 22px; background:linear-gradient(135deg,var(--primary-dark),var(--primary));
+  color:#fff; border:none; border-radius:24px; font-family:'Cairo',sans-serif;
+  font-weight:700; font-size:.9em; cursor:pointer;
+  box-shadow:0 4px 15px rgba(124,58,237,.4); transition:all .3s;
+}
+.btn-login:hover { transform:translateY(-2px); box-shadow:0 8px 25px rgba(124,58,237,.5); }
+.btn-logout {
+  padding:6px 16px; background:rgba(255,255,255,.06);
+  color:var(--muted); border:1px solid rgba(165,180,252,.2);
+  border-radius:20px; font-family:'Cairo',sans-serif; font-size:.85em; cursor:pointer; transition:all .3s;
+}
+.btn-logout:hover { background:rgba(239,68,68,.15); border-color:rgba(239,68,68,.3); color:#fca5a5; }
+
+/* ─── Clock ─── */
+#magic-clock {
+  position:fixed; top:72px; right:20px; z-index:150;
+  background:rgba(255,255,255,.06); backdrop-filter:blur(20px);
+  border:1px solid rgba(192,132,252,.25); border-radius:16px;
+  padding:10px 16px; text-align:center; min-width:140px;
+  box-shadow:0 8px 32px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.08);
+}
+#clock-time { font-size:1.35em; font-weight:800; color:var(--primary); letter-spacing:2px; }
+#clock-date { font-size:.72em; color:var(--muted); margin-top:4px; }
+#clock-flag { font-size:.68em; color:rgba(165,180,252,.7); margin-top:3px; }
+
+/* ─── Hero ─── */
+#hero {
+  position:relative; z-index:1;
+  padding:140px 20px 80px; text-align:center; overflow:hidden;
+}
+#hero::before {
+  content:'';
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:600px; height:600px;
+  background:radial-gradient(circle,rgba(124,58,237,.18) 0%,transparent 70%);
+  pointer-events:none;
+}
+.hero-content { position:relative; z-index:2; }
+.hero-title {
+  font-size:clamp(1.8em,5vw,3.8em); font-weight:900; line-height:1.2;
+  background:linear-gradient(135deg,#fff 20%,#c084fc 50%,#fbbf24 80%);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  margin-bottom:16px;
+}
+.hero-magic { -webkit-text-fill-color:initial; animation:puls 2s ease-in-out infinite; }
+@keyframes puls { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.8;transform:scale(1.12)} }
+.hero-sub { font-size:1.05em; color:var(--muted); margin-bottom:28px; font-weight:600; }
+#hero-login-btn {
+  padding:14px 38px;
+  background:linear-gradient(135deg,var(--primary-dark),var(--primary));
+  color:#fff; border:none; border-radius:50px;
+  font-family:'Cairo',sans-serif; font-weight:800; font-size:1.1em; cursor:pointer;
+  box-shadow:0 8px 30px rgba(124,58,237,.5); transition:all .4s;
+}
+#hero-login-btn:hover { transform:translateY(-4px) scale(1.05); box-shadow:0 16px 40px rgba(124,58,237,.6); }
+
+/* ─── Categories ─── */
+#cat-bar {
+  position:relative; z-index:10;
+  display:flex; flex-wrap:wrap; justify-content:center;
+  gap:10px; padding:0 20px 40px;
+}
+.cat-btn {
+  padding:10px 22px; background:rgba(255,255,255,.04);
+  border:1px solid rgba(192,132,252,.15); border-radius:30px;
+  color:var(--muted); font-family:'Cairo',sans-serif; font-weight:700;
+  font-size:.9em; cursor:pointer; white-space:nowrap; transition:all .3s;
+}
+.cat-btn:hover { background:rgba(192,132,252,.1); border-color:rgba(192,132,252,.35); color:var(--primary); transform:translateY(-2px); }
+.cat-btn.active {
+  background:linear-gradient(135deg,var(--primary-dark),var(--primary));
+  border-color:transparent; color:#fff;
+  box-shadow:0 6px 20px rgba(124,58,237,.4); transform:scale(1.05);
+}
+
+/* ─── Main ─── */
+#main { position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:0 24px 120px; }
+
+/* ─── Add Toggle Btn ─── */
+#btn-add {
+  display:none; margin-bottom:32px;
+  padding:13px 36px;
+  background:linear-gradient(135deg,#059669,#10b981);
+  color:#fff; border:none; border-radius:50px;
+  font-family:'Cairo',sans-serif; font-weight:800; font-size:1.05em; cursor:pointer;
+  box-shadow:0 6px 20px rgba(16,185,129,.4); transition:all .4s;
+}
+#btn-add:hover { transform:translateY(-3px) scale(1.04); box-shadow:0 12px 30px rgba(16,185,129,.5); }
+
+/* ─── Add Panel ─── */
+#add-panel {
+  display:none;
+  background:rgba(255,255,255,.05); border:1px solid rgba(192,132,252,.22);
+  border-radius:24px; padding:32px; margin-bottom:40px;
+  backdrop-filter:blur(12px); text-align:right;
+}
+.add-panel-title { font-size:1.3em; font-weight:800; color:var(--primary); margin-bottom:24px; text-align:center; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+.inp {
+  width:100%; padding:13px 18px;
+  background:rgba(255,255,255,.05); border:1px solid rgba(192,132,252,.2);
+  border-radius:14px; color:var(--text); font-family:'Cairo',sans-serif;
+  font-size:.95em; font-weight:600; transition:all .3s; direction:rtl;
+}
+.inp::placeholder { color:rgba(165,180,252,.5); }
+.inp:focus { outline:none; border-color:var(--primary); background:rgba(192,132,252,.08); box-shadow:0 0 0 3px rgba(192,132,252,.15); }
+select.inp option { background:#1e1b4b; color:#fff; }
+.inp-mb { margin-bottom:14px; }
+.textarea { resize:vertical; min-height:140px; line-height:1.7; }
+#btn-save {
+  width:100%; padding:15px;
+  background:linear-gradient(135deg,var(--primary-dark),var(--primary));
+  color:#fff; border:none; border-radius:16px;
+  font-family:'Cairo',sans-serif; font-weight:800; font-size:1.1em; cursor:pointer;
+  box-shadow:0 6px 20px rgba(124,58,237,.4); transition:all .3s;
+}
+#btn-save:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 10px 30px rgba(124,58,237,.5); }
+#btn-save:disabled { opacity:.5; cursor:not-allowed; }
+.btn-cancel {
+  width:100%; margin-top:10px; padding:11px;
+  background:rgba(255,255,255,.05); color:var(--muted);
+  border:1px solid rgba(165,180,252,.2); border-radius:14px;
+  font-family:'Cairo',sans-serif; font-weight:700; cursor:pointer; transition:all .3s;
+}
+.btn-cancel:hover { background:rgba(239,68,68,.1); color:#fca5a5; }
+
+/* ─── Stories Grid ─── */
+#stories-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:28px;
+}
+.empty-state { text-align:center; padding:80px 20px; color:var(--muted); font-size:1.2em; font-weight:600; grid-column:1/-1; }
+
+/* ─── Story Card ─── */
+@keyframes fadeUp { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
+.story-card {
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:24px;
+  overflow:hidden; backdrop-filter:blur(10px);
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1), box-shadow .4s;
+}
+.story-card:hover {
+  transform:translateY(-10px) scale(1.01);
+  box-shadow:0 30px 60px rgba(0,0,0,.4), 0 0 40px rgba(192,132,252,.3);
+  border-color:rgba(192,132,252,.4);
+}
+.card-cover { height:200px; background-size:cover; background-position:center; position:relative; overflow:hidden; }
+.card-cover-overlay { position:absolute; inset:0; background:linear-gradient(to bottom,rgba(0,0,0,.1),rgba(0,0,0,.6)); }
+.card-cat {
+  position:absolute; bottom:12px; right:14px;
+  background:rgba(255,255,255,.15); backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.2); color:#fff;
+  font-size:.8em; font-weight:700; padding:5px 14px; border-radius:20px;
+}
+.card-body    { padding:22px; }
+.card-title   { font-size:1.1em; font-weight:800; color:var(--text); margin-bottom:6px; line-height:1.4; }
+.card-author  { font-size:.8em; color:var(--primary); font-weight:600; margin-bottom:10px; }
+.card-excerpt { font-size:.88em; color:rgba(165,180,252,.7); line-height:1.6; margin-bottom:18px; }
+.card-actions { display:flex; gap:10px; align-items:center; }
+.btn-read {
+  flex:1; padding:10px 18px;
+  background:linear-gradient(135deg,var(--primary-dark),var(--primary));
+  color:#fff; border:none; border-radius:12px;
+  font-family:'Cairo',sans-serif; font-weight:700; font-size:.9em; cursor:pointer;
+  box-shadow:0 4px 15px rgba(124,58,237,.35); transition:all .3s;
+}
+.btn-read:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(124,58,237,.5); }
+.btn-del {
+  padding:10px 14px; background:rgba(239,68,68,.1);
+  border:1px solid rgba(239,68,68,.2); border-radius:12px;
+  cursor:pointer; font-size:1em; transition:all .3s; color:#fca5a5;
+}
+.btn-del:hover { background:rgba(239,68,68,.22); transform:scale(1.1); }
+
+/* ─── Modal ─── */
+#modal {
+  display:none; position:fixed; inset:0; z-index:500;
+  background:rgba(0,0,0,.8); backdrop-filter:blur(8px);
+  align-items:center; justify-content:center;
+  padding:20px; overflow-y:auto;
+}
+.modal-box {
+  background:#0f0c2e; border:1px solid rgba(192,132,252,.25); border-radius:28px;
+  width:100%; max-width:780px; overflow:hidden;
+  box-shadow:0 40px 80px rgba(0,0,0,.6), 0 0 60px rgba(124,58,237,.2);
+  max-height:90vh; display:flex; flex-direction:column;
+  animation:fadeUp .4s ease;
+}
+#modal-hero { height:240px; background-size:cover; background-position:center; position:relative; flex-shrink:0; }
+.modal-hero-overlay { position:absolute; inset:0; background:linear-gradient(to bottom,rgba(0,0,0,.2),rgba(15,12,46,.95)); }
+#modal-close {
+  position:absolute; top:16px; left:16px;
+  width:36px; height:36px; background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.2); border-radius:50%;
+  color:#fff; cursor:pointer; font-size:1em;
+  display:flex; align-items:center; justify-content:center;
+  transition:all .3s; z-index:2;
+}
+#modal-close:hover { background:rgba(239,68,68,.3); transform:scale(1.1); }
+.modal-meta { position:absolute; bottom:20px; right:24px; left:24px; z-index:2; }
+#modal-cat {
+  font-size:.8em; font-weight:700; color:var(--primary);
+  background:rgba(192,132,252,.15); padding:4px 12px; border-radius:20px;
+  border:1px solid rgba(192,132,252,.3); display:inline-block; margin-bottom:8px;
+}
+#modal-title   { font-size:clamp(1.3em,3vw,2em); font-weight:900; color:#fff; line-height:1.3; margin-bottom:6px; }
+#modal-author  { font-size:.85em; color:var(--primary); font-weight:600; }
+#modal-body    {
+  padding:30px 32px; font-size:1.05em; line-height:2;
+  color:rgba(245,243,255,.85); white-space:pre-wrap; overflow-y:auto; direction:rtl;
+}
+
+/* ─── Social Section ─── */
+#social {
+  margin-top:80px; text-align:center;
+  background:rgba(255,255,255,.03); border:1px solid rgba(192,132,252,.15);
+  border-radius:28px; padding:48px; backdrop-filter:blur(10px);
+}
+.social-title { font-size:1.4em; font-weight:800; color:var(--primary); margin-bottom:30px; }
+.social-links { display:flex; flex-wrap:wrap; justify-content:center; gap:14px; }
+.social-btn {
+  padding:13px 30px; border-radius:50px;
+  font-family:'Cairo',sans-serif; font-weight:700; font-size:1em;
+  text-decoration:none; transition:all .4s cubic-bezier(.34,1.56,.64,1);
+  box-shadow:0 6px 20px rgba(0,0,0,.3); display:inline-block; color:#fff;
+}
+.social-btn:hover { transform:translateY(-5px) scale(1.06); box-shadow:0 15px 35px rgba(0,0,0,.4); }
+.s-fb  { background:linear-gradient(135deg,#1877f2,#0a58ca); }
+.s-kt  { background:linear-gradient(135deg,#7c3aed,#c084fc); }
+.s-nr  { background:linear-gradient(135deg,#d97706,#fbbf24); }
+
+/* ─── WhatsApp FAB ─── */
+#wa-btn {
+  position:fixed; bottom:30px; left:24px;
+  width:62px; height:62px;
+  background:linear-gradient(135deg,#25d366,#128c7e);
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:1.8em; text-decoration:none; z-index:300;
+  box-shadow:0 8px 25px rgba(37,211,102,.5);
+  animation:bounce 2.5s ease-in-out infinite; transition:transform .3s;
+}
+#wa-btn:hover { transform:scale(1.15); }
+@keyframes bounce {
+  0%,100%{transform:translateY(0)} 40%{transform:translateY(-10px)} 60%{transform:translateY(-5px)}
+}
+
+/* ─── Footer ─── */
+footer {
+  background:rgba(0,0,0,.4); border-top:1px solid rgba(192,132,252,.15);
+  text-align:center; padding:36px 20px;
+  color:rgba(165,180,252,.6); font-size:.9em; font-weight:600; line-height:1.8;
+}
+.footer-sub { color:var(--primary); margin-top:6px; }
+
+/* ─── Toast ─── */
+#toast {
+  position:fixed; bottom:110px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:rgba(15,12,46,.95); border:1px solid rgba(192,132,252,.3);
+  color:var(--text); padding:12px 28px; border-radius:30px;
+  font-weight:700; font-size:.95em;
+  opacity:0; transition:all .35s; z-index:999; pointer-events:none; white-space:nowrap;
+}
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* ─── Responsive ─── */
+@media(max-width:640px){
+  #magic-clock { right:10px; top:70px; min-width:120px; padding:8px 12px; }
+  #clock-time  { font-size:1.1em; }
+  .form-row    { grid-template-columns:1fr; }
+  #stories-grid{ grid-template-columns:1fr; }
+  #social      { padding:28px 16px; }
+  #modal-body  { padding:20px; }
+  .hero-title  { font-size:1.8em; }
+}
+</style>
+</head>
+<body>
+
+<!-- Particles -->
+<div id="particles"></div>
+
+<!-- Navbar -->
+<nav id="navbar">
+  <div class="brand">
+    <span class="brand-icon">📚</span>
+    <span class="brand-name">حكايا</span>
+  </div>
+  <div id="nav-right"></div>
+</nav>
+
+<!-- Magic Clock -->
+<div id="magic-clock">
+  <div id="clock-time">--:--:--</div>
+  <div id="clock-date">----------</div>
+  <div id="clock-flag">مصر 🇪🇬</div>
+</div>
+
+<!-- Hero -->
+<header id="hero">
+  <div class="hero-content">
+    <h1 class="hero-title">
+      <span class="hero-magic">✨</span> موقع قصص لا تنتهي <span class="hero-magic">✨</span>
+    </h1>
+    <p class="hero-sub">مع إسلام الهاشمي... رحلة سحرية في عالم الأحلام والخيال 🌟</p>
+    <button id="hero-login-btn">سجل دخولك وشارك قصصك ✨</button>
+  </div>
+</header>
+
+<!-- Categories -->
+<div id="cat-bar"></div>
+
+<!-- Main Content -->
+<div id="main">
+
+  <!-- Add Story Btn -->
+  <div style="text-align:center">
+    <button id="btn-add" onclick="window._openAdd()">✨ أضف قصتك الآن</button>
+  </div>
+
+  <!-- Add Story Panel -->
+  <div id="add-panel">
+    <h3 class="add-panel-title">🌟 أضف عملاً إبداعياً جديداً</h3>
+    <div class="form-row">
+      <input  id="inp-title"   class="inp"        placeholder="عنوان العمل السحري ✨">
+      <select id="inp-cat"     class="inp">
+        <option value="قصص أطفال">🧸 قصص أطفال</option>
+        <option value="قصص قصيرة">📖 قصص قصيرة</option>
+        <option value="مقالات">📰 مقالات</option>
+        <option value="روايات">📚 روايات</option>
+        <option value="فلسفة">🧠 فلسفة</option>
+        <option value="شعر وأغاني">🎵 شعر وأغاني</option>
+        <option value="أديان">🕌 أديان</option>
+        <option value="تكنولوجيا">💻 تكنولوجيا</option>
+      </select>
+    </div>
+    <input    id="inp-img"     class="inp inp-mb" placeholder="رابط صورة الغلاف (اختياري)">
+    <textarea id="inp-content" class="inp textarea inp-mb" rows="6" placeholder="اكتب قصتك هنا... 🌟"></textarea>
+    <button   id="btn-save"    onclick="window._addStory()">🚀 انشر الآن!</button>
+    <button   class="btn-cancel" onclick="window._closeAdd()">إلغاء ✕</button>
+  </div>
+
+  <!-- Stories Grid -->
+  <div id="stories-grid">
+    <div class="empty-state">🌙 جاري تحميل القصص...</div>
+  </div>
+
+  <!-- Social Links -->
+  <div id="social">
+    <h3 class="social-title">🤝 تواصل مع الكاتب السحري 📚✨</h3>
+    <div class="social-links">
+      <a href="https://www.facebook.com/eslam.bahrya/" target="_blank" class="social-btn s-fb">📘 فيسبوك</a>
+      <a href="https://www.ktobati.com/author/%D8%A7%D8%B3%D9%84%D8%A7%D9%85-%D8%A7%D9%84%D9%87%D8%A7%D8%B4%D9%85%D9%8A-%D8%A7%D9%84%D8%AD%D8%A7%D9%85%D8%AF%D9%8A" target="_blank" class="social-btn s-kt">📖 كتوباتي</a>
+      <a href="https://www.noor-book.com/%D9%83%D8%AA%D8%A8-%D8%A7%D8%B3%D9%84%D8%A7%D9%85-%D8%A7%D9%84%D9%87%D8%A7%D8%B4%D9%85%D9%8A-%D8%A7%D9%84%D8%AD%D8%A7%D9%85%D8%AF%D9%8A-pdf" target="_blank" class="social-btn s-nr">💡 نور الكتب</a>
+    </div>
+  </div>
+</div>
+
+<!-- WhatsApp FAB -->
+<a id="wa-btn" href="https://wa.me/201005727778?text=مرحباً%20إسلام%20الهاشمي!%20أنا%20معجب%20بأعمالك%20السحرية%20وأود%20التواصل%20معك%20✨" target="_blank" aria-label="واتساب">💬</a>
+
+<!-- Story Modal -->
+<div id="modal">
+  <div class="modal-box">
+    <div id="modal-hero">
+      <div class="modal-hero-overlay"></div>
+      <button id="modal-close" onclick="window._closeModal()">✕</button>
+      <div class="modal-meta">
+        <div id="modal-cat"></div>
+        <h2 id="modal-title"></h2>
+        <p  id="modal-author"></p>
+      </div>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>© 2026 جميع الحقوق محفوظة | الكاتب إسلام الهاشمي</p>
+  <p class="footer-sub">✨ موقع قصص لا تنتهي - رحلتك السحرية في عالم الأحلام 🌟</p>
+</footer>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+</body>
+</html>

@@ -1,0 +1,98 @@
+# 📚 حكايا - موقع قصص لا تنتهي
+
+## 🌟 المكس الأسطوري
+
+هذا المشروع هو دمج كامل بين:
+- **التصميم السحري** من موقع إسلام الهاشمي القديم (ألوان، أنيميشن، ساعة، جو عربي)
+- **Firebase الحقيقي** من المشروع الجديد (Auth + Firestore + Security Rules)
+
+---
+
+## 📁 الملفات
+
+```
+hikayat-app/
+├── App.tsx              ← المكوّن الرئيسي (React + TypeScript)
+├── index.css            ← التصميم الكامل (Cairo font + ألوان جديدة)
+├── firestore.rules      ← قواعد الأمان للـ Firestore
+└── README.md            ← هذا الملف
+```
+
+---
+
+## 🔧 طريقة التركيب
+
+### 1. انسخ الملفات لمشروعك
+```
+src/App.tsx       ← استبدل بـ App.tsx الجديد
+src/index.css     ← استبدل بـ index.css الجديد
+```
+
+### 2. Firestore - غيّر collection
+في المشروع الجديد كانت collection اسمها `messages`
+الآن أصبحت `stories` - فيها حقول جديدة:
+- `title` - عنوان القصة
+- `content` - المحتوى
+- `category` - التصنيف
+- `image` - رابط الصورة
+- `userId` - معرف صاحبها
+- `userEmail` - إيميله
+- `userName` - اسمه
+- `createdAt` - التاريخ
+
+### 3. ارفع الـ Security Rules
+```bash
+firebase deploy --only firestore:rules
+
+
+### 4. lib/firebase.ts
+```ts
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
+```
+
+---
+
+## ✨ المميزات الجديدة
+
+| الميزة | القديم | الجديد |
+|--------|--------|--------|
+| التخزين | localStorage + Google Sheets | Firebase Firestore حقيقي |
+| تسجيل الدخول | كلمة سر بسيطة | Google Auth حقيقي |
+| الألوان | وردي/أزرق | بنفسجي غامق ذهبي (Dark Theme) |
+| الفونت | Cairo | Cairo (محسّن) |
+| الأنيميشن | CSS فقط | Motion (Framer) |
+| الأمان | لا يوجد | Firestore Security Rules |
+| الساعة | ✅ موجودة | ✅ محافظ عليها |
+| واتساب | ✅ موجود | ✅ محافظ عليه |
+| السوشيال | ✅ موجودة | ✅ محافظ عليها |
+| فلتر التصنيفات | ✅ موجود | ✅ محسّن |
+| الجزيئات المتطايرة | ✅ موجودة | ✅ محسّنة |
+
+---
+
+## 🎨 الألوان الجديدة
+
+```css
+--primary: #c084fc      /* بنفسجي فاتح */
+--primary-dark: #7c3aed /* بنفسجي غامق */
+--secondary: #f0abfc    /* وردي بنفسجي */
+--accent: #fbbf24       /* ذهبي */
+```
+
+---
+
+## 📞 روابط محافظ عليها
+- فيسبوك: https://www.facebook.com/eslam.bahrya/
+- كتوباتي: كما هو
+- نور الكتب: كما هو
+- واتساب: 201005727778
+
+---
+
+صنعه Claude بحب ✨ | حكايا 2026
